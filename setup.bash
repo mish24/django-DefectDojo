@@ -114,15 +114,15 @@ fi
 # Detect if we're in a a virtualenv
 if python -c 'import sys; print sys.real_prefix' 2>/dev/null; then
     pip install .
-    python manage.py makemigrations dojo
-    python manage.py makemigrations
-    python manage.py migrate
-    python manage.py syncdb
     python manage.py loaddata product_type
     python manage.py loaddata test_type
     python manage.py loaddata development_environment
     python manage.py installwatson
     python manage.py buildwatson
+    python manage.py makemigrations dojo
+    python manage.py makemigrations
+    python manage.py migrate --fake-initial
+    
 else
     sudo pip install .
     sudo python manage.py makemigrations dojo

@@ -8,9 +8,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.utils import six
 from django.utils.translation import ugettext_lazy as _
-from django_filters import FilterSet, CharFilter, \
-    ModelMultipleChoiceFilter, ModelChoiceFilter, MultipleChoiceFilter, MethodFilter
-from django_filters.filters import ChoiceFilter, _truncate, DateTimeFilter
+import django_filters
 from pytz import timezone
 
 from dojo.models import Dojo_User, Product_Type, Finding, \
@@ -26,7 +24,7 @@ def now():
     return local_tz.localize(datetime.today())
 
 
-class DojoFilter(FilterSet):
+class DojoFilter(django_filters.FilterSet):
     def __init__(self, *args, **kwargs):
         super(DojoFilter, self).__init__(*args, **kwargs)
         page_size = forms.ChoiceField(
@@ -35,7 +33,7 @@ class DojoFilter(FilterSet):
         self.form.fields['page_size'] = page_size
 
 
-class DateRangeFilter(ChoiceFilter):
+class DateRangeFilter(django_filters.ChoiceFilter):
     options = {
         '': (_('Any date'), lambda qs, name: qs.all()),
         1: (_('Today'), lambda qs, name: qs.filter(**{
@@ -81,7 +79,7 @@ class DateRangeFilter(ChoiceFilter):
         return self.options[value][1](qs, self.name)
 
 
-class MitigatedDateRangeFilter(ChoiceFilter):
+class MitigatedDateRangeFilter(django_filters.ChoiceFilter):
     options = {
         '': (_('Either'), lambda qs, name: qs.all()),
         1: (_('Yes'), lambda qs, name: qs.filter(**{
@@ -105,7 +103,7 @@ class MitigatedDateRangeFilter(ChoiceFilter):
         return self.options[value][1](qs, self.name)
 
 
-class ReportBooleanFilter(ChoiceFilter):
+class ReportBooleanFilter(django_filters.ChoiceFilter):
     options = {
         '': (_('Either'), lambda qs, name: qs.all()),
         1: (_('Yes'), lambda qs, name: qs.filter(**{
@@ -129,7 +127,7 @@ class ReportBooleanFilter(ChoiceFilter):
         return self.options[value][1](qs, self.name)
 
 
-class ReportRiskAcceptanceFilter(ChoiceFilter):
+class ReportRiskAcceptanceFilter(django_filters.ChoiceFilter):
 
     def any(self, qs, name):
         return qs.all()
@@ -159,10 +157,10 @@ class ReportRiskAcceptanceFilter(ChoiceFilter):
         return self.options[value][1](self, qs, self.name)
 
 
-class MetricsDateRangeFilter(ChoiceFilter):
+class MetricsDateRangeFilter(django_filters.ChoiceFilter):
     def any(self, qs, name):
         try:
-            earliest_finding = Finding.objects.earliest('date')
+            earliest_finding = Finding.objects.all().order_by('date').first()
         except Finding.DoesNotExist:
             earliest_finding = None
 
@@ -223,13 +221,14 @@ class MetricsDateRangeFilter(ChoiceFilter):
         7: (_('Any date'), any),
     }
 
+
     def __init__(self, *args, **kwargs):
         kwargs['choices'] = [
             (key, value[0]) for key, value in six.iteritems(self.options)]
         super(MetricsDateRangeFilter, self).__init__(*args, **kwargs)
 
         try:
-            earliest_finding = Finding.objects.earliest('date')
+            earliest_finding = Finding.objects.all().order_by('date').first()
         except Finding.DoesNotExist:
             earliest_finding = None
 
@@ -249,13 +248,13 @@ class MetricsDateRangeFilter(ChoiceFilter):
 
 
 class EngagementFilter(DojoFilter):
-    engagement__name = CharFilter(lookup_type='icontains')
-    engagement__lead = ModelChoiceFilter(
+    engagement__name = django_filters.CharFilter(lookup_type='icontains')
+    engagement__lead = django_filters.ModelChoiceFilter(
         queryset=User.objects.filter(
             engagement__lead__isnull=False).distinct(),
         label="Lead")
-    name = CharFilter(lookup_type='icontains')
-    prod_type = ModelMultipleChoiceFilter(
+    name = django_filters.CharFilter(lookup_type='icontains')
+    prod_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.all().order_by('name'),
         label="Product Type")
 
@@ -269,8 +268,8 @@ class EngagementFilter(DojoFilter):
 
 
 class ProductFilter(DojoFilter):
-    name = CharFilter(lookup_type='icontains', label="Product Name")
-    prod_type = ModelMultipleChoiceFilter(
+    name = django_filters.CharFilter(lookup_type='icontains', label="Product Name")
+    prod_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.all().order_by('name'),
         label="Product Type")
     #tags = CharFilter(lookup_type='icontains', label="Tags")
@@ -297,14 +296,14 @@ class ProductFilter(DojoFilter):
 
 
 class OpenFindingFilter(DojoFilter):
-    title = CharFilter(lookup_type='icontains')
-    date = DateRangeFilter()
-    last_reviewed = DateRangeFilter()
-    cwe = MultipleChoiceFilter(choices=[])
-    severity = MultipleChoiceFilter(choices=[])
-    test__test_type = ModelMultipleChoiceFilter(
+    title = django_filters.CharFilter(lookup_type='icontains')
+    date = django_filters.DateRangeFilter()
+    last_reviewed = django_filters.DateRangeFilter()
+    cwe = django_filters.MultipleChoiceFilter(choices=[])
+    severity = django_filters.MultipleChoiceFilter(choices=[])
+    test__test_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Test_Type.objects.all())
-    test__engagement__product = ModelMultipleChoiceFilter(
+    test__engagement__product = django_filters.ModelMultipleChoiceFilter(
         queryset=Product.objects.all(),
         label="Product")
 
@@ -350,24 +349,42 @@ class OpenFindingFilter(DojoFilter):
 
 
 class OpenFingingSuperFilter(OpenFindingFilter):
-    reporter = ModelMultipleChoiceFilter(
+    reporter = django_filters.ModelMultipleChoiceFilter(
         queryset=Dojo_User.objects.all())
-    test__engagement__product__prod_type = ModelMultipleChoiceFilter(
+    test__engagement__product__prod_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.all().order_by('name'),
         label="Product Type")
 
+    class Meta:
+        model = Finding
+        order_by = (('numerical_severity', 'Severity Asc'),
+                    ('-numerical_severity', 'Severity Desc'),
+                    ('date', 'Date Asc'),
+                    ('-date', 'Date Desc'),
+                    ('last_reviewed', 'Review Date Asc'),
+                    ('-last_reviewed', 'Review Date Desc'),
+                    ('title', 'Finding Name Asc'),
+                    ('-title', 'Finding Name Desc'),
+                    ('test__engagement__product__name', 'Product Name Asc'),
+                    ('-test__engagement__product__name', 'Product Name Desc'))
+        exclude = ['url', 'description', 'mitigation', 'impact',
+                   'endpoint', 'references', 'test', 'is_template',
+                   'active', 'verified', 'out_of_scope', 'false_p',
+                   'duplicate', 'thread_id', 'mitigated', 'notes',
+                   'numerical_severity', 'reporter', 'last_reviewed']
+
 
 class ClosedFindingFilter(DojoFilter):
-    title = CharFilter(lookup_type='icontains')
-    mitigated = DateRangeFilter(label="Mitigated Date")
-    cwe = MultipleChoiceFilter(choices=[])
-    severity = MultipleChoiceFilter(choices=[])
-    test__test_type = ModelMultipleChoiceFilter(
+    title = django_filters.CharFilter(lookup_type='icontains')
+    mitigated = django_filters.DateRangeFilter(label="Mitigated Date")
+    cwe = django_filters.MultipleChoiceFilter(choices=[])
+    severity = django_filters.MultipleChoiceFilter(choices=[])
+    test__test_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Test_Type.objects.all())
-    test__engagement__product = ModelMultipleChoiceFilter(
+    test__engagement__product = django_filters.ModelMultipleChoiceFilter(
         queryset=Product.objects.all(),
         label="Product")
-    test__engagement__product__prod_type = ModelMultipleChoiceFilter(
+    test__engagement__product__prod_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.all(),
         label="Product Type")
 
@@ -405,23 +422,41 @@ class ClosedFindingFilter(DojoFilter):
 
 
 class ClosedFingingSuperFilter(ClosedFindingFilter):
-    reporter = ModelMultipleChoiceFilter(
+    reporter = django_filters.ModelMultipleChoiceFilter(
         queryset=Dojo_User.objects.all())
+
+    class Meta:
+        model = Finding
+        order_by = (('numerical_severity', 'Severity Asc'),
+                    ('-numerical_severity', 'Severity Desc'),
+                    ('date', 'Date Asc'),
+                    ('-date', 'Date Desc'),
+                    ('last_reviewed', 'Review Date Asc'),
+                    ('-last_reviewed', 'Review Date Desc'),
+                    ('title', 'Finding Name Asc'),
+                    ('-title', 'Finding Name Desc'),
+                    ('test__engagement__product__name', 'Product Name Asc'),
+                    ('-test__engagement__product__name', 'Product Name Desc'))
+        exclude = ['url', 'description', 'mitigation', 'impact',
+                   'endpoint', 'references', 'test', 'is_template',
+                   'active', 'verified', 'out_of_scope', 'false_p',
+                   'duplicate', 'thread_id', 'mitigated', 'notes',
+                   'numerical_severity', 'reporter', 'last_reviewed']
 
 
 class AcceptedFindingFilter(DojoFilter):
-    title = CharFilter(lookup_type='icontains')
+    title = django_filters.CharFilter(lookup_type='icontains')
     test__engagement__risk_acceptance__created = \
         DateRangeFilter(label="Acceptance Date")
-    date = DateRangeFilter(label="Finding Date")
-    cwe = MultipleChoiceFilter(choices=[])
-    severity = MultipleChoiceFilter(choices=[])
-    test__test_type = ModelMultipleChoiceFilter(
+    date = django_filters.DateRangeFilter(label="Finding Date")
+    cwe = django_filters.MultipleChoiceFilter(choices=[])
+    severity = django_filters.MultipleChoiceFilter(choices=[])
+    test__test_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Test_Type.objects.all())
-    test__engagement__product = ModelMultipleChoiceFilter(
+    test__engagement__product = django_filters.ModelMultipleChoiceFilter(
         queryset=Product.objects.all(),
         label="Product")
-    test__engagement__product__prod_type = ModelMultipleChoiceFilter(
+    test__engagement__product__prod_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.all(),
         label="Product Type")
 
@@ -463,17 +498,35 @@ class AcceptedFindingFilter(DojoFilter):
 
 class AcceptedFingingSuperFilter(AcceptedFindingFilter):
     test__engagement__risk_acceptance__reporter = \
-        ModelMultipleChoiceFilter(
+        django_filters.ModelMultipleChoiceFilter(
             queryset=Dojo_User.objects.all(),
             label="Risk Acceptance Reporter")
 
+    class Meta:
+        model = Finding
+        order_by = (('numerical_severity', 'Severity Asc'),
+                    ('-numerical_severity', 'Severity Desc'),
+                    ('date', 'Date Asc'),
+                    ('-date', 'Date Desc'),
+                    ('last_reviewed', 'Review Date Asc'),
+                    ('-last_reviewed', 'Review Date Desc'),
+                    ('title', 'Finding Name Asc'),
+                    ('-title', 'Finding Name Desc'),
+                    ('test__engagement__product__name', 'Product Name Asc'),
+                    ('-test__engagement__product__name', 'Product Name Desc'))
+        exclude = ['url', 'description', 'mitigation', 'impact',
+                   'endpoint', 'references', 'test', 'is_template',
+                   'active', 'verified', 'out_of_scope', 'false_p',
+                   'duplicate', 'thread_id', 'mitigated', 'notes',
+                   'numerical_severity', 'reporter', 'last_reviewed']
+
 
 class ProductFindingFilter(DojoFilter):
-    title = CharFilter(lookup_type='icontains')
-    date = DateRangeFilter()
-    cwe = MultipleChoiceFilter(choices=[])
-    severity = MultipleChoiceFilter(choices=[])
-    test__test_type = ModelMultipleChoiceFilter(
+    title = django_filters.CharFilter(lookup_type='icontains')
+    date = django_filters.DateRangeFilter()
+    cwe = django_filters.MultipleChoiceFilter(choices=[])
+    severity = django_filters.MultipleChoiceFilter(choices=[])
+    test__test_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Test_Type.objects.all())
 
     class Meta:
@@ -506,10 +559,10 @@ class ProductFindingFilter(DojoFilter):
 
 
 class TemplateFindingFilter(DojoFilter):
-    title = CharFilter(lookup_type='icontains')
-    cwe = MultipleChoiceFilter(choices=[])
-    severity = MultipleChoiceFilter(choices=[])
-    numerical_severity = MultipleChoiceFilter(choices=[])
+    title = django_filters.CharFilter(lookup_type='icontains')
+    cwe = django_filters.MultipleChoiceFilter(choices=[])
+    severity = django_filters.MultipleChoiceFilter(choices=[])
+    numerical_severity = django_filters.MultipleChoiceFilter(choices=[])
 
     class Meta:
         model = Finding_Template
@@ -544,7 +597,7 @@ class TemplateFindingFilter(DojoFilter):
                                                           (u'S4', u'S4'))
 
 
-class FindingStatusFilter(ChoiceFilter):
+class FindingStatusFilter(django_filters.ChoiceFilter):
     def any(self, qs, name):
         return qs.filter(verified=True,
                          false_p=False,
@@ -577,7 +630,7 @@ class FindingStatusFilter(ChoiceFilter):
         super(FindingStatusFilter, self).__init__(*args, **kwargs)
 
         try:
-            earliest_finding = Finding.objects.earliest('date')
+            earliest_finding = Finding.objects.first('date')
         except Finding.DoesNotExist:
             earliest_finding = None
 
@@ -595,13 +648,32 @@ class FindingStatusFilter(ChoiceFilter):
             value = ''
         return self.options[value][1](self, qs, self.name)
 
+    class Meta:
+        model = Finding
+        order_by = (('numerical_severity', 'Severity Asc'),
+                    ('-numerical_severity', 'Severity Desc'),
+                    ('date', 'Date Asc'),
+                    ('-date', 'Date Desc'),
+                    ('last_reviewed', 'Review Date Asc'),
+                    ('-last_reviewed', 'Review Date Desc'),
+                    ('title', 'Finding Name Asc'),
+                    ('-title', 'Finding Name Desc'),
+                    ('test__engagement__product__name', 'Product Name Asc'),
+                    ('-test__engagement__product__name', 'Product Name Desc'))
+        exclude = ['url', 'description', 'mitigation', 'impact',
+                   'endpoint', 'references', 'test', 'is_template',
+                   'active', 'verified', 'out_of_scope', 'false_p',
+                   'duplicate', 'thread_id', 'mitigated', 'notes',
+                   'numerical_severity', 'reporter', 'last_reviewed']
 
-class MetricsFindingFilter(FilterSet):
+
+
+class MetricsFindingFilter(django_filters.FilterSet):
     date = MetricsDateRangeFilter()
-    test__engagement__product__prod_type = ModelMultipleChoiceFilter(
+    test__engagement__product__prod_type = django_filters.ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.all().order_by('name'),
         label="Product Type")
-    severity = MultipleChoiceFilter(choices=[])
+    severity = django_filters.MultipleChoiceFilter(choices=[])
     status = FindingStatusFilter()
 
     def __init__(self, *args, **kwargs):
@@ -609,15 +681,34 @@ class MetricsFindingFilter(FilterSet):
         self.form.fields['severity'].choices = self.queryset.order_by('numerical_severity') \
             .values_list('severity', 'severity').distinct()
 
+    class Meta:
+        model = Finding
+        order_by = (('numerical_severity', 'Severity Asc'),
+                    ('-numerical_severity', 'Severity Desc'),
+                    ('date', 'Date Asc'),
+                    ('-date', 'Date Desc'),
+                    ('last_reviewed', 'Review Date Asc'),
+                    ('-last_reviewed', 'Review Date Desc'),
+                    ('title', 'Finding Name Asc'),
+                    ('-title', 'Finding Name Desc'),
+                    ('test__engagement__product__name', 'Product Name Asc'),
+                    ('-test__engagement__product__name', 'Product Name Desc'))
+        exclude = ['url', 'description', 'mitigation', 'impact',
+                   'endpoint', 'references', 'test', 'is_template',
+                   'active', 'verified', 'out_of_scope', 'false_p',
+                   'duplicate', 'thread_id', 'mitigated', 'notes',
+                   'numerical_severity', 'reporter', 'last_reviewed']
+
+
 
 class EndpointFilter(DojoFilter):
-    product = ModelMultipleChoiceFilter(
+    product = django_filters.ModelMultipleChoiceFilter(
         queryset=Product.objects.all().order_by('name'),
         label="Product")
-    host = CharFilter(lookup_type='icontains')
-    path = CharFilter(lookup_type='icontains')
-    query = CharFilter(lookup_type='icontains')
-    fragment = CharFilter(lookup_type='icontains')
+    host = django_filters.CharFilter(lookup_type='icontains')
+    path = django_filters.CharFilter(lookup_type='icontains')
+    query = django_filters.CharFilter(lookup_type='icontains')
+    fragment = django_filters.CharFilter(lookup_type='icontains')
 
     def __init__(self, *args, **kwargs):
         self.user = None
@@ -637,11 +728,11 @@ class EndpointFilter(DojoFilter):
 
 
 class EndpointReportFilter(DojoFilter):
-    host = CharFilter(lookup_type='icontains')
-    path = CharFilter(lookup_type='icontains')
-    query = CharFilter(lookup_type='icontains')
-    fragment = CharFilter(lookup_type='icontains')
-    finding__severity = MultipleChoiceFilter(choices=SEVERITY_CHOICES)
+    host = django_filters.CharFilter(lookup_type='icontains')
+    path = django_filters.CharFilter(lookup_type='icontains')
+    query = django_filters.CharFilter(lookup_type='icontains')
+    fragment = django_filters.CharFilter(lookup_type='icontains')
+    finding__severity = django_filters.MultipleChoiceFilter(choices=SEVERITY_CHOICES)
     finding__mitigated = MitigatedDateRangeFilter()
 
     class Meta:
@@ -650,8 +741,8 @@ class EndpointReportFilter(DojoFilter):
 
 
 class ReportFindingFilter(DojoFilter):
-    title = CharFilter(lookup_type='icontains', label='Name')
-    severity = MultipleChoiceFilter(choices=SEVERITY_CHOICES)
+    title = django_filters.CharFilter(lookup_type='icontains', label='Name')
+    severity = django_filters.MultipleChoiceFilter(choices=SEVERITY_CHOICES)
     active = ReportBooleanFilter()
     mitigated = MitigatedDateRangeFilter()
     verified = ReportBooleanFilter()
@@ -669,10 +760,10 @@ class ReportFindingFilter(DojoFilter):
 
 
 class ReportAuthedFindingFilter(DojoFilter):
-    title = CharFilter(lookup_type='icontains', label='Name')
-    test__engagement__product = ModelMultipleChoiceFilter(queryset=Product.objects.all(), label="Product")
-    test__engagement__product__prod_type = ModelMultipleChoiceFilter(queryset=Product_Type.objects.all(), label="Product Type")
-    severity = MultipleChoiceFilter(choices=SEVERITY_CHOICES)
+    title = django_filters.CharFilter(lookup_type='icontains', label='Name')
+    test__engagement__product = django_filters.ModelMultipleChoiceFilter(queryset=Product.objects.all(), label="Product")
+    test__engagement__product__prod_type = django_filters.ModelMultipleChoiceFilter(queryset=Product_Type.objects.all(), label="Product Type")
+    severity = django_filters.MultipleChoiceFilter(choices=SEVERITY_CHOICES)
     active = ReportBooleanFilter()
     mitigated = MitigatedDateRangeFilter()
     verified = ReportBooleanFilter()
@@ -699,9 +790,9 @@ class ReportAuthedFindingFilter(DojoFilter):
 
 
 class UserFilter(DojoFilter):
-    first_name = CharFilter(lookup_type='icontains')
-    last_name = CharFilter(lookup_type='icontains')
-    username = CharFilter(lookup_type='icontains')
+    first_name = django_filters.CharFilter(lookup_type='icontains')
+    last_name = django_filters.CharFilter(lookup_type='icontains')
+    username = django_filters.CharFilter(lookup_type='icontains')
 
     class Meta:
         model = Dojo_User
@@ -724,12 +815,12 @@ class UserFilter(DojoFilter):
 
 
 class ReportFilter(DojoFilter):
-    name = CharFilter(lookup_type='icontains')
-    type = MultipleChoiceFilter(choices=[])
-    format = MultipleChoiceFilter(choices=[])
-    requester = ModelMultipleChoiceFilter(queryset=Dojo_User.objects.all())
-    datetime = DateTimeFilter()
-    status = MultipleChoiceFilter(choices=[])
+    name = django_filters.CharFilter(lookup_type='icontains')
+    type = django_filters.MultipleChoiceFilter(choices=[])
+    format = django_filters.MultipleChoiceFilter(choices=[])
+    requester = django_filters.ModelMultipleChoiceFilter(queryset=Dojo_User.objects.all())
+    datetime = django_filters.DateTimeFilter()
+    status = django_filters.MultipleChoiceFilter(choices=[])
 
     class Meta:
         model = Report
@@ -785,9 +876,9 @@ class EngineerFilter(DojoFilter):
 class LogEntryFilter(DojoFilter):
     from auditlog.models import LogEntry
 
-    action = MultipleChoiceFilter(choices=LogEntry.Action.choices)
-    actor = ModelMultipleChoiceFilter(queryset=Dojo_User.objects.all())
-    timestamp = DateRangeFilter()
+    action = django_filters.MultipleChoiceFilter(choices=LogEntry.Action.choices)
+    actor = django_filters.ModelMultipleChoiceFilter(queryset=Dojo_User.objects.all())
+    timestamp = django_filters.DateRangeFilter()
 
     class Meta:
         model = LogEntry
@@ -795,7 +886,7 @@ class LogEntryFilter(DojoFilter):
 
 
 class ProductTypeFilter(DojoFilter):
-    name = CharFilter(lookup_type='icontains')
+    name = django_filters.CharFilter(lookup_type='icontains')
 
     class Meta:
         model = Product_Type
@@ -805,7 +896,7 @@ class ProductTypeFilter(DojoFilter):
 
 
 class TestTypeFilter(DojoFilter):
-    name = CharFilter(lookup_type='icontains')
+    name = django_filters.CharFilter(lookup_type='icontains')
 
     class Meta:
         model = Test_Type
@@ -815,7 +906,7 @@ class TestTypeFilter(DojoFilter):
 
 
 class DevelopmentEnvironmentFilter(DojoFilter):
-    name = CharFilter(lookup_type='icontains')
+    name = django_filters.CharFilter(lookup_type='icontains')
 
     class Meta:
         model = Development_Environment

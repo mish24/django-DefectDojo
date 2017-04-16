@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from uuid import uuid4
 
-import watson
+from watson import search as watson
 from auditlog.registry import auditlog
 from django.conf import settings
 from django.contrib import admin
@@ -14,13 +14,16 @@ from django.core.urlresolvers import reverse
 from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
+from pytz import timezone
 from django.utils.timezone import now
 from imagekit.models import ImageSpecField
 from imagekit.processors import ResizeToCover
-from pytz import timezone
 from tagging.registry import register as tag_register
 
 localtz = timezone(settings.TIME_ZONE)
+
+def now():
+    return local_tz.localize(datetime.today())
 
 
 def get_current_date():
@@ -545,7 +548,7 @@ class VA(models.Model):
 
 class Finding(models.Model):
     title = models.TextField(max_length=1000)
-    date = models.DateField(default=get_current_date)
+    date = models.DateField(default=get_current_date, null=True, blank=True)
     cwe = models.IntegerField(default=0, null=True, blank=True)
     url = models.TextField(null=True, blank=True, editable=False)
     severity = models.CharField(max_length=200)
@@ -560,18 +563,18 @@ class Finding(models.Model):
     references = models.TextField(null=True, blank=True, db_column="refs")
     test = models.ForeignKey(Test, editable=False)
     # TODO: Will be deprecated soon
-    is_template = models.BooleanField(default=False)
-    active = models.BooleanField(default=True)
-    verified = models.BooleanField(default=True)
-    false_p = models.BooleanField(default=False, verbose_name="False Positive")
-    duplicate = models.BooleanField(default=False)
-    out_of_scope = models.BooleanField(default=False)
-    under_review = models.BooleanField(default=False)
+    is_template = models.NullBooleanField(default=False)
+    active = models.NullBooleanField(default=True)
+    verified = models.NullBooleanField(default=True)
+    false_p = models.NullBooleanField(default=False, verbose_name="False Positive")
+    duplicate = models.NullBooleanField(default=False)
+    out_of_scope = models.NullBooleanField(default=False)
+    under_review = models.NullBooleanField(default=False)
     review_requested_by = models.ForeignKey(Dojo_User, null=True, blank=True, related_name='review_requested_by')
     reviewers = models.ManyToManyField(Dojo_User, blank=True)
 
     #Defect Tracking Review
-    under_defect_review = models.BooleanField(default=False)
+    under_defect_review = models.NullBooleanField(default=False)
     defect_review_requested_by = models.ForeignKey(Dojo_User, null=True, blank=True, related_name='defect_review_requested_by')
 
     thread_id = models.IntegerField(default=0, editable=False)
